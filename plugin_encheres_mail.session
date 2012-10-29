@@ -1,0 +1,14 @@
+<!DOCTYPE webprojectsession>
+<webprojectsession>
+  <session usePreviewPrefix="0" previewPrefix="" >
+    <itemcursorpositions>
+      <item column="63" line="277" url="inc/envoyer_message_acheteur.php" />
+      <item line="122" column="87" url="inc/envoyer_message_asso.php" />
+    </itemcursorpositions>
+    <treestatus>
+      <openfolder url="inc" />
+      <openfolder url="lang" />
+      <openfolder url="lang/backup" />
+    </treestatus>
+  </session>
+</webprojectsession>

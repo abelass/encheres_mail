@@ -1,0 +1,755 @@
+<?php
+
+//envoi des différents emails aux acheteurs
+
+if (!defined("_ECRIRE_INC_VERSION")) return;
+
+
+
+function inc_envoyer_message_acheteur_dist($email='',$type,$id_objet="",$contexte="") {
+	spip_log(serialize($contexte),'teste');
+   	include_spip('inc/mail');
+   	include_spip('inc/encheresmail_fonctions');	
+	include_spip('inc/filtres');
+	include_spip('encheres_fonctions');	
+	   
+	if(is_array($contexte)){				
+		foreach($contexte as $key=>$item){
+			$$key=$item;
+			}
+		} 		   
+		  
+	// On récupère les données nécessaires à envoyer le mail de validation
+	// La fonction envoyer_mail se chargera de nettoyer cela plus tard
+
+	$nom_site_spip = $GLOBALS['meta']["nom_site"];
+	$url_site = $GLOBALS['meta']["adresse_site"];
+	$spip_lang='fr';
+	$nom_site_spip = $GLOBALS['meta']["nom_site"];
+	$expediteur = $GLOBALS['meta']["email_webmaster"];			
+	$from = $nom_site_spip.'<'.$expediteur.'>';
+	$devise = traduire_devise(lire_config('encheres/devise'));
+
+	//On prépare le infos pour le message et sujet
+		
+	// l'objet	
+	if(!$objet){
+		$objet = requete_objets(array('id_objet='.sql_quote($id_objet)));
+		spip_log("action : acheteur - requete : objet - type : $type",'mails_requetes_generes');
+		}
+
+	$id_article = $objet['id_article'];
+	$date_debut_evenement = affdate($objet['date_debut_evenement'],'d-m-Y');
+	$date_fin_evenement=date('d-m-Y', strtotime ($objet['date_stop_vente'].' "+13 day"'));
+	$date_fin = affdate($objet['date_fin'],'d-m-Y G:i:s');
+	$date_debut_evenement = affdate($objet['date_debut_evenement'],'d/m/Y');			
+	$date_fin_evenement = affdate($objet['date_fin_evenement'],'d/m/Y');
+ 	$date_vente = date('d-m-Y',strtotime($objet['date_vente']));
+ 	$validite = $date_debut_evenement.'-'.$date_fin_evenement;
+ 	if($date_debut_evenement==$date_fin_evenement)$validite=$date_debut_evenement;	
+
+
+	
+	// le kidonateur
+	
+	if(!$kidonateur){
+		if($email)$kidonateur = requete_auteurs_elargis(array('email='.sql_quote($email)));
+		elseif($id_auteur)$kidonateur = requete_auteurs_elargis(array('id_auteur='.sql_quote($id_auteur)));
+		spip_log("action:acheteur - requete:kidonateur  - type:$type",'mails_requetes_generes');
+		}
+																
+	$compte_bancaire_kidonateur = 	_T('encheresmail:compte_bancaire').' : '.$kidonateur['compte_bancaire'].' - '._T('encheresmail:bic').' : '.$kidonateur['bic'];
+				
+	if(!$commune){	
+		$commune = requete_geolocalites(array('id_geolocalite='.sql_quote($kidonateur['id_commune'])));
+		spip_log("action : acheteur - requete: commune - type : $type",'mails_requetes_generes');
+		}
+
+	if(!$pays_kidonateur){
+		$pays_kidonateur = sql_getfetsel('titre','spip_geoentites',array('id_geoentite='.sql_quote($kidonateur['pays'])));
+		spip_log("action : acheteur - requete: pays_kidonateur - type : $type",'mails_requetes_generes');
+		}	
+									
+	$adresse_kidonateur = $kidonateur['adresse'].', '.$commune['code_postal'].' '.$commune['titre'].' - '.$pays_kidonateur;	
+	
+						
+	
+	// l'acheteur
+	if(!$acheteur){			
+		$acheteur = requete_auteurs_elargis(array('id_auteur='.sql_quote($objet['id_acheteur'])));
+		spip_log("action:acheteur - requete:acheteur - type:$type",'mails_requetes_generes');
+		}
+
+	
+			
+	// article objet
+	if(!$artobjet){		
+		$artobjet = requete_articles(array('id_article='.sql_quote($id_article)));
+		spip_log("action:acheteur - requete:artobjet - type:$type",'mails_requetes_generes');		
+		}	
+				
+
+	
+	if(!$id_mot_article){
+		$id_mot = sql_getfetsel('id_mot','spip_mots_articles',array('id_article='.sql_quote($id_article)));
+		spip_log("action:acheteur - requete: id_mot_article - type:$type",'mails_requetes_generes');	
+		}
+	
+	// teste si objet billetterie
+
+	$billet = sql_getfetsel('id_groupe','spip_mots',array('id_mot='.sql_quote($id_mot ),'id_groupe=80'));
+	
+	
+
+	if($billet){
+		$id_groupe= $billet;
+		$billetterie='ok';
+		$objet['mode_livraison'] ='email';
+		$html='oui';
+		$contexte = array('url_image1'=>$url_site.'/newsletter/billetterie/topBilletterie.jpg','url_image2'=>$url_site.'/newsletter/billetterie/TitreBilletterie.jpg' ,'url_image_foot'=>'http://www.kidonaki.be/newsletter/billetterie/foot.jpg','option'=>$id_objet);
+		}
+							
+	// les infos projets
+	if(!$projet){													
+		$projet = requete_rubriques(array('id_rubrique='.sql_quote($artobjet['id_rubrique'])));
+		spip_log("action:acheteur - requete:projet - type:$type",'mails_requetes_generes');	
+		}			
+	spip_log('action:acheteur -'.serialize($acheteur),'teste2');	
+
+	// Les infos de l'association
+	
+	if(!$asso){		
+		$asso = requete_auteurs_elargis(array('id_auteur='.sql_quote($projet['id_auteur'])));
+		spip_log("action:acheteur - requete:asso - type:$type",'mails_requetes_generes');	
+		if(!lire_config('encheres/super_asso')){
+			$projet['compte_bancaire']=lire_config('encheres/compte_bancaire');
+			$projet['communication_virement']=lire_config('encheres/communication_virement');	
+			}		
+		}	
+	
+	$compte_bancaire_asso = $asso['compte_bancaire'];
+	$communication_virement_asso = $asso['communication_virement'];
+	$adresse_asso = extraire_multi($asso['adresse']).', '.$asso['code_postal'].' '.extraire_multi($asso['ville']);
+	if($projet['compte_bancaire']){$compte_bancaire_asso=$projet['compte_bancaire'];}
+	if($projet['communication_virement']){$communication_virement_asso=$projet['communication_virement'];}
+	if(!$communication_virement_asso){$communication_virement_asso='kidonaki';}
+
+														
+
+		// Détermine le prix de livraison, nationale ou étranger
+		
+		if ($acheteur['pays'] != $pays_k AND $objet['livraison_etranger']) {$objet['prix_livraison'] =$objet['prix_livraison_etranger'];}
+		
+	// On détérmine la bonne langue		
+	if ($acheteur['langue']) lang_select($acheteur['langue']);	
+		
+	$message_auto =_T('encheresmail:message_auto');
+	$bonjour =_T('bonjour').' '. extraire_multi($acheteur['prenom']).' '. extraire_multi($acheteur['nom_famille']);
+	$signature = _T('encheresmail:email_signature');
+	$slogan =  _T('encheresmail:email_slogan');
+	$fin_message = mise_en_forme(array($signature,$slogan),$acheteur['spip_listes_format']);
+	
+	if($acheteur['spip_listes_format']=='html') {
+		$header ="Content-Type: text/html; charset=UTF-8\n".
+		"Content-Transfer-Encoding: 8bit\n" .
+		"MIME-Version: 1.0\n";
+		$contexte = array('url_image1'=>$url_site.'/squelettes/styles/images/top.jpg','background'=>$url_site.'/newsletter/billetterie/TitreBilletterie.jpg','option'=>$id_objet,'message_auto'=>$message_auto);
+		$entete = recuperer_fond("inc/mail_header_html", $contexte);
+		$pied = recuperer_fond("inc/mail_footer_html", $contexte);
+		}
+	else{
+		$bonjour =array(
+			$message_auto,
+			_T('bonjour').' '. extraire_multi($acheteur['prenom']).' '. extraire_multi($acheteur['nom_famille'])
+			);
+		}
+		
+	// Composition des mails
+	
+	switch ($type){
+
+		// mail de confirmation pour après une mise aux enchère réussi
+	
+		case 'enchere_reussie' :
+			$sujet = "[".$nom_site_spip."] - ".$artobjet['titre']."(".$id_objet.") : "._T('encheresmail:email_encherisseur_enchere_reussi_sujet');
+			$texte=array(
+				$bonjour,
+				_T('encheresmail:email_encherisseur_enchere_reussi_objet_message',array('titre_article' => $artobjet['titre'],'id_objet' => $id_objet)),
+				_T('encheresmail:email_echeance_enchere',array('date_fin' => $date_fin)),
+				_T('encheresmail:email_encherisseur_soutien_projet',array('titre_rubrique' => extraire_multi($projet['titre']),'nom_asso' => extraire_multi($asso['nom']))),
+				_T('encheresmail:email_encherisseur_merci_achat'),
+				);
+			$corps=mise_en_forme($texte,$acheteur['spip_listes_format']);
+			$message = $corps.$fin_message;	
+	
+			break;
+	
+		// mail de confirmation pour l'enchérisseur surpassé
+	
+		case 'enchere_surpassee' :
+			if ($acheteur['langue']) lang_select($acheteur['langue']);
+			$url_enchere= generer_url_public("article","id_article=$id_article");
+			$url_enchere= str_replace('&amp;','&',$url_enchere); 
+			$url_var='&id_objet='.$id_objet.'&enchere=encherir';
+			$url_enchere = $url_enchere.$url_var;
+			$url_bouton = $url_site.'/squelettes/styles/images/encherir.jpg';
+			if($acheteur['spip_listes_format']=='html')$url_enchere='<a href="'.$url_enchere.' title="'._T('encheresmail:encherir').'"><img src="'.$url_bouton.'"/></a>';
+			
+			$sujet = "[".$nom_site_spip."] - ".$artobjet['titre']."(".$id_objet.") : "._T('encheresmail:email_encherisseur_surpasse_sujet');
+			
+			$texte=array(
+				$bonjour,
+				_T('encheresmail:email_encherisseur_surpasse_objet_message',array('titre_article' => $artobjet['titre'],'id_objet' => $id_objet)),
+				_T('encheresmail:email_encherisseur_surpasse_encherir',array('url_enchere' => $url_enchere)),
+				_T('encheresmail:email_encherisseur_soutien_projet',array('titre_rubrique' => extraire_multi($projet['titre']),'nom_asso' => extraire_multi($asso['nom']))),
+				_T('encheresmail:email_encherisseur_merci_achat'),
+				);
+		
+			$corps=mise_en_forme($texte,$acheteur['spip_listes_format']);
+			
+			
+			$message = $corps.$fin_message;			
+	
+			break;
+	
+		// mail de confirmation pour l'enchérisseur surpassé - suiveur, avis des 24 heures
+	
+		case 'avis_24_heures' :
+			if ($acheteur['langue']) lang_select($acheteur['langue']);
+			$url_enchere= generer_url_public("article","id_article=$id_article");
+			$url_enchere= str_replace('&amp;','&',$url_enchere); 
+			$url_var='&id_objet='.$id_objet.'&enchere=encherir';
+			$url_enchere = $url_enchere.$url_var;
+			$url_bouton = $url_site.'/squelettes/styles/images/encherir.jpg';
+			if($acheteur['spip_listes_format']=='html')$url_enchere='<a href="'.$url_enchere.' title="'._T('encheresmail:encherir').'"><img src="'.$url_bouton.'"/></a>';
+			$sujet = "[".$nom_site_spip."] - ".$artobjet['titre']."(".$id_objet.") : "._T('encheresmail:email_suiveur_avis_24_heures_sujet');
+			
+			$texte=array(
+				$bonjour,
+				_T('encheresmail:email_suiveur_avis_24_heures_objet_message',array('titre_article' => $artobjet['titre'],'id_objet' => $id_objet)),
+				_T('encheresmail:email_encherisseur_soutien_projet',array('titre_rubrique' => extraire_multi($projet['titre']),'nom_asso' => extraire_multi($asso['nom']))),
+				_T('encheresmail:email_suiveur_avis_24_heures_encherir',array('url_enchere' => $url_enchere)),
+				);
+		
+			$corps=mise_en_forme($texte,$acheteur['spip_listes_format']);
+	
+			break;
+				
+	
+				
+		// mail de confirmation pour l'enchérisseur qui a emporté l'enchère
+	
+		case 'enchere_gagnee' :
+			$url_paiement= generer_url_public("paiement",'','false');
+	
+			if ($acheteur['langue']) lang_select($acheteur['langue']);
+			
+			if ($objet['courrier_velo']) {
+				$url_article = generer_url_public("article","id_article=1275",false);
+				$texte=array(
+					_T('encheresmail:email_courrier_velo'),
+					_T('encheresmail:email_courrier_velo_contacter'),
+					_T('encheresmail:email_courrier_velo_savoir_plus',array('url_article' => $url_article)),
+					);
+					
+				$message_courrier=$texte;	
+				}
+	
+			if($asso['paypal']){
+				$url_var_objet='&id_objet='.$id_objet.'&paiement=objet&mode_paiement=paypal';
+				$url_paiement_objet = $url_paiement.$url_var_objet;
+				if($acheteur['spip_listes_format']=='html')$url_paiement_objet='<a href="'.$url_paiement_objet.'">'._T('encheresmail:payer_paypal').'</a>';
+	
+				$message_paypal_asso=_T('encheresmail:email_enchere_gagnee_message_paypal_asso',array('url_paiement_objet' => $url_paiement_objet));	
+				}
+	
+			if($kidonateur['paypal']){
+				$url_var_frais='&id_objet='.$id_objet.'&paiement=frais&mode_paiement=paypal';
+				$url_paiement_frais = $url_paiement.$url_var_frais;
+				if($acheteur['spip_listes_format']=='html')$url_paiement_frais='<a href="'.$url_paiement_frais.'">'._T('encheresmail:payer_paypal').'</a>';
+				$message_paypal_kidonateur=
+					_T('encheresmail:email_enchere_gagnee_message_paypal_kidonateur',array('url_paiement_frais' => $url_paiement_frais));
+				}
+	
+			if ($objet['mode_livraison'] == 'email') {
+					$message_specifique = _T('encheresmail:'.$acheteur['spip_listes_format'].'email_enchere_gagnee_message_specifique_email',
+					array(
+					'titre_article' => $artobjet['titre'],
+					'communication_virement' => $communication_virement_asso,
+					'montant_mise' => $objet['montant_mise'].'&nbsp;'.$devise, 
+					'id_objet' => $id_objet,
+					'adresse_asso' => $adresse_asso,
+					'compte_bancaire_asso' => $compte_bancaire_asso,
+					'nom_asso' => extraire_multi(extraire_multi($asso['nom'])),
+					'message_paypal_asso' => $message_paypal_asso,
+					'date_debut' => $date_debut_evenement,'date_fin' => $date_fin_evenement))
+					.$message_courrier;
+					
+					$message = $message_specifique.$fin_message;	
+					}
+			elseif ($objet['mode_livraison'] == 'venir' OR $objet['prix_livraison']=='0') {
+				$message_specifiquee=array(
+					_T('encheresmail:email_enchere_gagnee_message_specifique_enlevement',array('nom_asso'=>extraire_multi($asso['nom']))),
+					$message_courrier
+					);		
+				}
+	
+			elseif ($objet['mode_livraison'] == 'livraison' OR $objet['mode_livraison'] == 'poste') {
+				$message_specifique=array(
+					'ul|style="list-style-type:none;"'=>array(_T('encheresmail:email_enchere_gagnee_message_specifique_livraison',array('nom_asso'=>extraire_multi($asso['nom'])))),
+					'ul'=>array(
+						'dl'=>array(
+							_T('encheresmail:email_enchere_gagnee_message_specifique_frais_transport'),
+							_T('encheresmail:montant').'&nbsp;'. $objet['prix_livraison'].'&nbsp;'.$devise,
+							_T('encheresmail:compte').'&nbsp;'.$compte_bancaire_kidonateur ,
+							_T('encheresmail:communication').' "'._T('encheresmail:transport_objet'). $artobjet['titre'].' - '.$id_objet.'"',
+							$message_paypal_kidonateur
+							),
+						),				
+					$message_courrier
+					);	 
+			 }
+	
+			elseif ($objet['mode_livraison'] == 'posteouvenir') {
+				$message_specifique=array(
+					_T('encheresmail:email_enchere_gagnee_message_specifique_livraison',array('nom_asso'=>extraire_multi($asso['nom']))),
+					_T('encheresmail:email_enchere_gagnee_message_specifique_frais_transport_posteouvenir',array(
+							'titre_article' => $artobjet['titre'], 
+							'id_objet' => $id_objet,
+							'compte_bancaire_kidonateur' => $compte_bancaire_kidonateur,
+							'nom_kidonateur' => extraire_multi($kidonateur['nom']),
+							'prix_transport' => $objet['prix_livraison'],
+							'devise'=>$devise)
+							),				
+					$message_paypal_kidonateur,
+					$message_courrier
+					);
+				};
+	
+				$sujet = "[".$nom_site_spip."] - ".$artobjet['titre']."(".$id_objet.") : "._T('encheresmail:email_enchere_gagnee_sujet');
+				
+				if($objet['mode_livraison']!='email'){
+					$texte=array(
+						$bonjour,
+						_T('encheresmail:email_enchere_gagnee_objet_message',
+							 array(
+								'titre_article' => $artobjet['titre'], 
+								'id_objet' => $id_objet)
+								),
+						_T('encheresmail:email_encherisseur_soutien_projet',
+							array(
+							'titre_rubrique' => extraire_multi($projet['titre']),
+							'nom_asso' => extraire_multi($asso['nom']))
+							),
+						_T('encheresmail:email_enchere_gagnee_message_obtenir'),	
+						'ul'=>array(
+							'dl'=>array(
+								_T('encheresmail:email_enchere_gagnee_message_specifique_payer_objet'),							
+								_T('encheresmail:montant').'&nbsp;'. $objet['montant_mise'].'&nbsp;'.$devise,
+								'&nbsp;',
+								_T('encheresmail:compte').'&nbsp;'. $compte_bancaire_asso,							
+								extraire_multi($asso['adresse']),
+								$asso['code_postal'].' '.extraire_multi($asso['ville']),
+								'&nbsp;',							
+								_T('encheresmail:communication').' "'. $communication_virement_asso.' - '.$artobjet['titre'].' - '.$id_objet,
+								$message_paypal_asso
+								),							
+							),
+						$message_specifique,			
+						_T('encheresmail:email_encherisseur_merci_achat'),
+						_T('encheresmail:email_enchere_gagnee_objet_attention'),
+						_T('encheresmail:email_enchere_gagnee_objet_rien_certifie'),										
+						);
+			
+				$corps=mise_en_forme($texte,$acheteur['spip_listes_format']);
+				$message = $corps.$fin_message;	
+				}
+	
+			break;
+	
+		// mail de confirmation pour les enchérisseur qui ont perdu l'enchère
+	
+		case 'enchere_perdu' :
+			$url_rech= url_absolue(generer_url_public("achat"));
+			$url_rech= str_replace('&amp;','&',$url_rech); 
+			$url_recherche= $url_rech.$contexte['url_recherche']; 
+			if($acheteur['spip_listes_format']=='html')$url_recherche='<a href="'.$url_rech.$contexte['url_recherche'].'">'._T('encheresmail:objets_similiaires').'</a>';
+	
+			$sujet = "[".$nom_site_spip."] - ".$artobjet['titre']."(".$id_objet.") : "._T('encheresmail:email_enchere_perdu_sujet');
+	
+			$texte=array(
+				$bonjour,
+				_T('encheresmail:email_enchere_perdu_objet_message',array('titre_article' => $artobjet['titre'],'id_objet' => $id_objet)),
+				_T('encheresmail:email_enchere_perdu_objet_message_similaires',array('url_recherche' => $url_recherche)),
+				_T('encheresmail:email_encherisseur_merci_achat'),
+				);
+		
+			$corps=mise_en_forme($texte,$acheteur['spip_listes_format']);
+			
+			$message = $corps.$fin_message;		
+	
+			break;
+				
+				
+		// mail pour aviser l'encherisseur gagnant de la suppression de l'objet
+	
+		case 'objet_supprime' :
+			$sujet = "[".$nom_site_spip."] - ".$artobjet['titre']."(".$id_objet.") : "._T('encheresmail:email_acheteur_objet_supprime_sujet');
+			$texte=array(
+				$bonjour,
+				_T('encheresmail:email_acheteur_objet_supprime_message',array('titre_article' => $artobjet['titre'],'id_objet' => $id_objet)),
+				);
+		
+			$corps=mise_en_forme($texte,$acheteur['spip_listes_format']);
+			
+			$message = $corps.$fin_message;		
+	
+			break;					
+	
+	
+		// Rappel pour l'acheteur paiement non enregistré
+		case 'rappel_acheteur' :
+	
+			$url_paiement= generer_url_public("paiement");
+			$url_paiement= str_replace('&amp;','&',$url_paiement); 
+			
+			if ($acheteur['langue']) lang_select($acheteur['langue']);
+			
+			if ($objet['courrier_velo']) {
+				$url_article = generer_url_public("article","id_article=1275",'false');
+				$message_courrier=array(
+					_T('encheresmail:email_courrier_velo',array('devise'=>$devise)),
+					_T('encheresmail:email_courrier_velo_contacter'),
+					_T('encheresmail:email_courrier_velo_savoir_plus',array('url_article' => $url_article)),
+					);;	
+				}
+	
+			if($asso['paypal']){
+				$url_var_objet='&id_objet='.$id_objet.'&paiement=objet&mode_paiement=paypal';
+				$url_paiement_objet = $url_paiement.$url_var_objet;
+				if($acheteur['spip_listes_format']=='html')$url_paiement_objet='<a href="'.$url_paiement_objet.'">'._T('encheresmail:payer_paypal').'</a>';
+				$message_paypal_asso=_T('encheresmail:email_enchere_gagnee_message_paypal_asso',array('url_paiement_objet' => $url_paiement_objet));	
+				}
+	
+			if($kidonateur['paypal']){
+				$url_var_frais='&id_objet='.$id_objet.'&paiement=frais&mode_paiement=paypal';
+				$url_paiement_frais = $url_paiement.$url_var_frais;
+				if($acheteur['spip_listes_format']=='html')$url_paiement_frais='<a href="'.$url_paiement_frais.'">'._T('encheresmail:payer_paypal').'</a>';
+				$message_paypal_kidonateur=
+					_T('encheresmail:email_enchere_gagnee_message_paypal_kidonateur',array('url_paiement_frais' => $url_paiement_frais));
+				}
+	
+			if ($objet['mode_livraison'] == 'venir' OR $objet['prix_livraison']=='0') {
+				$message_specifique=array(
+					_T('encheresmail:email_enchere_gagnee_message_specifique_enlevement',
+						array(
+						'nom_asso'=>extraire_multi($asso['nom'])
+						)
+					),
+					$message_courrier
+					);
+				}
+	
+			elseif ($objet['mode_livraison'] == 'livraison' OR $objet['mode_livraison'] == 'poste') {
+				$message_specifique=array(
+					$message_paypal_asso,	
+					_T('encheresmail:email_enchere_gagnee_message_specifique_livraison',array('nom_asso'=>extraire_multi($asso['nom']))),
+					_T('encheresmail:email_enchere_gagnee_message_specifique_frais_transport',array(
+							'titre_article' => $artobjet['titre'], 
+							'id_objet' => $id_objet,
+							'compte_bancaire_kidonateur' => $compte_bancaire_kidonateur,
+							'nom_kidonateur' => extraire_multi($kidonateur['nom']),
+							'prix_transport' => $objet['prix_livraison'].'&nbsp;'.$devise)),				
+					$message_paypal_kidonateur,
+					);
+				}
+	
+			elseif ($objet['mode_livraison'] == 'posteouvenir') {
+				$message_specifique=array(
+					$message_paypal_asso,	
+					_T('encheresmail:email_enchere_gagnee_message_specifique_livraison',array('nom_asso'=>extraire_multi($asso['nom']))),
+					_T('encheresmail:email_enchere_gagnee_message_specifique_frais_transport_posteouvenir',array(
+							'titre_article' => $artobjet['titre'], 
+							'id_objet' => $id_objet,
+							'compte_bancaire_kidonateur' => $compte_bancaire_kidonateur,
+							'nom_kidonateur' => extraire_multi($kidonateur['nom']),
+							'prix_transport' => $objet['prix_livraison'].'&nbsp;'.$devise)),				
+					$message_paypal_kidonateur,
+					$message_courrier
+					);
+				};
+			
+			$sujet = _T('encheresmail:email_rappel_acheteur_sujet');
+			if($envoi_rappels == 15) $sujet = _T('encheresmail:email_rappel_2_acheteur_sujet');
+			if($envoi_rappels == 21) $sujet = _T('encheresmail:email_rappel_3_acheteur_sujet');
+	
+			$sujet = "[".$nom_site_spip."] - ".$artobjet['titre']."(".$id_objet.") : ".$sujet;
+	
+			$texte=array(
+						$bonjour,
+						_T('encheresmail:email_rappel_acheteur_message',
+							 array(
+								'titre_article' => $artobjet['titre'], 
+								'id_objet' => $id_objet,
+								'date_vente'=>$date_vente)
+								),
+						_T('encheresmail:email_rappel_acheteur_fait_versement'),	 	
+						_T('encheresmail:email_encherisseur_soutien_projet',
+							array(
+							'titre_rubrique' => extraire_multi($projet['titre']),
+							'nom_asso' => extraire_multi($asso['nom']))
+							),
+						_T('encheresmail:email_enchere_gagnee_message_specifique_payer'),	
+						'ul|style="list-style-type:none;" class="montant"'=>array(
+							_T('encheresmail:montant').'&nbsp;'.$objet['montant_mise'].'&nbsp;'.$devise,
+							),
+						'ul|style="list-style-type:none;" class="adresse"'=>array(	
+							_T('encheresmail:compte').'&nbsp;'. $compte_bancaire_asso,							
+							extraire_multi($asso['adresse']),
+							$asso['code_postal'].' '.extraire_multi($asso['ville']),
+							),
+						'ul|style="list-style-type:none;" class="communication"'=>array(		
+							_T('encheresmail:communication').' "'. $communication_virement_asso.' - '.$artobjet['titre'].' - '.$id_objet,
+							),	
+						'ul|style="list-style-type:none;"  class="paypal"'=>array(	
+							$message_paypal_asso
+							),
+						$message_specifique,				
+						_T('encheresmail:email_encherisseur_merci_achat'),									
+						);
+			
+				$corps=mise_en_forme($texte,$acheteur['spip_listes_format']);
+	
+				$message = $corps.$fin_message;				
+			break;
+		
+		// Email au encherisseurs perdants si pas de paiement enregistré et objet remis en vente 
+		case 'remise_en_vente_sans_payer' :
+			$url_enchere= generer_url_public("article","id_article=$id_article",false);
+			$url_var='&id_objet='.$id_objet.'&enchere=encherir';
+			$url_enchere = $url_enchere.$url_var;
+			$url_bouton = $url_site.'/squelettes/styles/images/encherir.jpg';
+			if($acheteur['spip_listes_format']=='html')$url_enchere='<a href="'.$url_enchere.' title="'._T('encheresmail:encherir').'"><img src="'.$url_bouton.'"/></a>';
+			$sujet = _T('encheresmail:email_remise_en_vente_sans_payer_encherisseurs_sujet',array('titre_article' => $artobjet['titre'], 'id_objet' => $id_objet));
+
+			$texte=array(
+						$bonjour,
+						_T('encheresmail:email_remise_en_vente_sans_payer_encherisseurs_message',
+							 array(
+								'titre_article' => $artobjet['titre'], 
+								'id_objet' => $id_objet,
+								'date_vente'=>$date_vente,
+								'prenom_acheteur'=>$acheteur['prenom'],						 	
+								'nom_famille_acheteur' => $acheteur['nom_famille']
+								)
+							),
+						_T('encheresmail:email_remise_en_vente_sans_payer_encherisseurs', 
+							array('nom_kidonateur' => extraire_multi($kidonateur['nom']),'nom_famille_kidonateur' => extraire_multi($kidonateur['nom_famille']))),	 	
+						_T('encheresmail:email_remise_en_vente_sans_payer_encherisseurs_url',
+							array(
+							'url_enchere' => $url_enchere)
+							),
+						_T('encheresmail:email_encherisseur_merci_achat'),								
+						);
+			
+			$corps=mise_en_forme($texte,$acheteur['spip_listes_format']);
+	
+			$message = $corps.$fin_message;			
+					
+			break;
+							
+		// Avis à l'acheteur recception
+		case 'paiement_ok_acheteur' :
+			$intro_billetterie='';
+			if ($acheteur['langue']) lang_select($acheteur['langue']);
+			$url_paiement= generer_url_public("paiement",'','false');
+			
+			if ($objet['courrier_velo']) {
+				$url_article = generer_url_public("article","id_article=1275",'false');
+				$message_courrier=array(
+					_T('encheresmail:email_courrier_velo'),
+					_T('encheresmail:email_courrier_velo_contacter'),
+					_T('encheresmail:email_courrier_velo_savoir_plus',array('url_article' => $url_article)),
+						);	
+				}
+			
+			if($kidonateur['paypal']){
+				$url_var_frais='&id_objet='.$id_objet.'&paiement=frais&mode_paiement=paypal';
+				$url_paiement_frais = $url_paiement.$url_var_frais;
+				if($acheteur['spip_listes_format']=='html')$url_paiement_frais='<a href="'.$url_paiement_frais.'">'._T('encheresmail:payer_paypal').'</a>';
+				$message_paypal_kidonateur=_T('encheresmail:email_enchere_gagnee_message_paypal_kidonateur',
+					array('url_paiement_frais' => $url_paiement_frais)
+					);
+				}
+	
+			if ($objet['mode_livraison'] == 'email') {
+				$message_specifique = _T('encheresmail:'.$acheteur['spip_listes_format'].'email_enchere_gagnee_message_specifique_email',
+				array(
+					'titre_article' => $artobjet['titre'],
+					'communication_virement' => $communication_virement_asso,
+					'montant_mise' => $objet['montant_mise'].'&nbsp;'.$devise, 
+					'id_objet' => $id_objet,
+					'adresse_asso' => $adresse_asso,
+					'compte_bancaire_asso' => $compte_bancaire_asso,
+					'nom_asso' => extraire_multi(extraire_multi($asso['nom'])),
+					'message_paypal_asso' => $message_paypal_asso,
+					'date_debut' => $date_debut_evenement,'date_fin' => $date_fin_evenement))
+				.$message_courrier;
+				
+				$message = $message_specifique.$fin_message;	
+				}
+	
+			elseif ($objet['mode_livraison'] == 'venir' OR $objet['prix_livraison']=='0') {
+				$message_specifique=array(
+					_T('encheresmail:email_enchere_gagnee_objet_obtenir'),
+					'ul'=>array(
+						_T('encheresmail:email_paiement_ok_acheteur_message_specifique_contact',
+							array('prenom_kidonateur' => extraire_multi($kidonateur['prenom']),'nom_famille_kidonateur' => extraire_multi($kidonateur['nom_famille']))
+							),	
+						_T('encheresmail:email_paiement_ok_acheteur_message_specifique_coordonnes_kido',array('email_kidonateur' => $kidonateur['email'])),			
+						$message_courrier
+						)
+					);
+				}
+	
+			elseif ($objet['mode_livraison'] == 'livraison' OR $objet['mode_livraison'] == 'poste') {
+				$message_specifique=array(
+					_T('encheresmail:email_enchere_gagnee_objet_obtenir'),
+					'ul'=>array(
+						_T('encheresmail:email_enchere_gagnee_message_specifique_frais_transport',array(
+							'titre_article' => $artobjet['titre'], 
+							'id_objet' => $id_objet,
+							'compte_bancaire_kidonateur' => $compte_bancaire_kidonateur,
+							'nom_kidonateur' => extraire_multi($kidonateur['nom']),
+							'prix_transport' => $objet['prix_livraison'].'&nbsp;'.$devise)),				
+						$message_paypal_kidonateur,
+						$message_courrier
+						),
+					_T('encheresmail:email_enchere_gagnee_message_specifique_livraison',array('nom_asso'=>extraire_multi($asso['nom'])))
+					);	
+				}
+	
+			elseif ($objet['mode_livraison'] == 'posteouvenir') {
+				$message_specifique=array(
+					_T('encheresmail:email_enchere_gagnee_objet_obtenir'),
+					'ul'=>array(
+						_T('encheresmail:email_enchere_gagnee_message_specifique_frais_transport',array(
+							'titre_article' => $artobjet['titre'], 
+							'id_objet' => $id_objet,
+							'compte_bancaire_kidonateur' => $compte_bancaire_kidonateur,
+							'nom_kidonateur' => extraire_multi($kidonateur['nom']),
+							'prix_transport' => $objet['prix_livraison'].'&nbsp;'.$devise)),				
+						$message_paypal_kidonateur,
+						$message_courrier
+						),
+					_T('encheresmail:email_enchere_gagnee_message_specifique_livraison',array('nom_asso'=>extraire_multi($asso['nom'])))
+					);
+				};
+			
+			$sujet = "[".$nom_site_spip."] - ".$artobjet['titre']."(".$id_objet.") : "._T('encheresmail:email_paiement_ok_acheteur_sujet');
+					
+			if ($billetterie) {
+					$message = '<table width="100%" border="0" cellspacing="0" cellpadding="10">
+									<tr>
+											<td>							
+											<p class="style6">'._T('encheresmail:email_intro_billetterie_html',array('id_objet' => $id_objet)).'</p>
+											<p>
+								<span class="style11">'
+								._T('bonjour').' '. $acheteur['prenom'].' '. $acheteur['nom_famille'].
+								'</span></p>'
+								. _T('encheresmail:email_paiement_ok_acheteur_message_html', array('titre_article' => $artobjet['titre'], 'id_objet' => $id_objet,'titre_rubrique' => extraire_multi(extraire_multi($projet['titre'])),'titre_rubrique' => extraire_multi(extraire_multi($projet['titre'])),'nom_asso' => extraire_multi(extraire_multi($asso['nom'])),'message_specifique' => $message_specifique)). _T('encheresmail:email_signature_html').'<p class="style11">'. _T('encheresmail:'.$acheteur['spip_listes_format'].'email_signature')."<br/>"._T('encheresmail:message_auto').'</p>							</td>
+									</tr>
+								</table>
+							</td>
+						</tr>'.recuperer_fond("inc/mail_footer_html", $contexte);
+					$header ="Content-Type: text/html; charset=UTF-8\n".
+								"Content-Transfer-Encoding: 8bit\n" .
+								"MIME-Version: 1.0\n";
+						}
+			else{
+					$texte=array(
+						$bonjour,
+						_T('encheresmail:email_paiement_ok_acheteur_message',
+							 array(
+								'titre_article' => $artobjet['titre'], 
+								'id_objet' => $id_objet,
+								'titre_article' => $artobjet['titre'],
+								 'id_objet' => $id_objet,
+								 'nom_asso' =>extraire_multi($asso['nom'])
+								)
+							),
+						$message_specifique,
+						_T('encheresmail:email_encherisseur_merci_achat'),																
+						);
+				
+					$corps=mise_en_forme($texte,$acheteur['spip_listes_format']);
+					$message = $corps.$fin_message;								
+					}
+			$email=$acheteur['email'];
+			break;
+				
+			
+		// Envoi mail à l'acheteur, si 5 jours après livraison enregistrés celle ci n'a pas été déclaré comme reçu	
+		case 'rappel_acheteur_recu' :
+			$url_kidonateur= generer_url_public("auteur",'id_auteur='.$objet['id_acheteur'],false);
+			if($acheteur['spip_listes_format']=='html')$url_kidonateur='<a href="'.$url_kidonateur.'">'._T('encheresmail:mon_kidonaki').'</a>';
+			else $url_kidonateur=_T('encheresmail:mon_kidonaki').' ('.$url_kidonateur.')';
+			
+			$sujet = "[".$nom_site_spip."] - ".$artobjet['titre']."(".$id_objet.") : "._T('encheresmail:email_kidonateur_rappel_acheteur_recu_sujet');
+					
+			$texte=array(
+						$bonjour,
+						_T('encheresmail:email_kidonateur_rappel_acheteur_recu_message', 
+							array('titre_article' => $artobjet['titre'],
+							 'id_objet' => $id_objet,
+							'prenom_kidonateur' => extraire_multi($kidonateur['prenom']),
+							'nom_kidonateur' => extraire_multi($kidonateur['nom_famille']))
+							),
+						_T('encheresmail:email_kidonateur_rappel_acheteur_recu_message_url', array('url_kido' => $url_kidonateur)),	
+						_T('encheresmail:email_kidonateur_rappel_acheteur_recu_message_non_recu', array('email_kidonateur' => $kidonateur['email'])),							
+						);
+						
+			$corps=mise_en_forme($texte,$acheteur['spip_listes_format']);
+			$message = $corps.$fin_message;				
+								
+			break;	
+				
+		// Envoi mail à l'acheteur, quand le paiement des frais de transport a été enregistré
+		
+		case 'paiement_livraison_ok_acheteur' :
+			$email=$acheteur['email'];
+			$sujet = "[".$nom_site_spip."] - ".$artobjet['titre']."(".$id_objet.") : "._T('encheresmail:email_paiement_livraison_ok_sujet');
+
+			$texte=array(
+						$bonjour,
+						_T('encheresmail:email_acheteur_paiement_livraison_ok_message', 
+							array(
+								'titre_article' => $artobjet['titre'],
+								 'id_objet' => $id_objet,
+								 'date_vente'=> $date_vente
+								 )
+							),
+						_T('encheresmail:email_acheteur_paiement_livraison_ok_message_adresse'),	
+						_T('encheresmail:email_paiement_ok_acheteur_message_specifique_coordonnes_kido', array('email_kidonateur' => $kidonateur['email'])),
+						_T('encheresmail:email_acheteur_paiement_livraison_ok_message_recevoir'),	
+						_T('encheresmail:email_encherisseur_soutien_projet',array('titre_rubrique' => extraire_multi($projet['titre']),'nom_asso' => extraire_multi($asso['nom']))),						
+						);
+						
+			$corps=mise_en_forme($texte,$acheteur['spip_listes_format']);
+			$message = $corps.$fin_message;				
+					
+			break;	
+	}
+	
+
+			// Partie générale, envoi des mails
+			
+	$email=$acheteur['email'];
+
+	if (envoyer_mail($email,$sujet,$entete.$message.$pied,$from,$header))
+
+		return spip_log("Email visiteur $type : $email\n$sujet\n$message\n",'encheres_emails_acheteur');
+	else
+		return spip_log("Échec envoi email visiteur $email\n$sujet\n$message\n$type\n$header",'encheres_emails_acheteur');
+}
+?>

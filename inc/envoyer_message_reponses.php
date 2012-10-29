@@ -1,0 +1,144 @@
+<?php
+
+//fonction qui crée les sujets et textes les différents emails aux visiteurs/kidonateurs et assos et prépare leur envoi
+
+	if (!defined("_ECRIRE_INC_VERSION")) return;
+
+function inc_envoyer_message_reponses_dist($email='',$type,$option="",$option2="") {
+   	include_spip('inc/mail');
+	include_spip('inc/encheresmail_fonctions');	
+	include_spip('inc/filtres');	   
+	
+	// On récupère les données nécessaires à envoyer le mail de validation
+	// La fonction envoyer_mail se chargera de nettoyer cela plus tard
+
+	$nom_site_spip = $GLOBALS['meta']["nom_site"];
+	$url_site = $GLOBALS['meta']["adresse_site"];
+	$spip_lang='fr';
+	$nom_site_spip = $GLOBALS['meta']["nom_site"];
+	$expediteur = $GLOBALS['meta']["email_webmaster"];			
+	$from = $nom_site_spip.'<'.$expediteur.'>';
+	
+
+	//On prépare le infos pour le message et sujet
+
+	$sql = spip_query( "SELECT * FROM spip_auteurs WHERE email='$email'");
+	while($data = spip_fetch_array($sql)) {
+		$nom =extraire_multi($data['nom']);
+		$id_auteur = $data['id_auteur'];
+		$sql = spip_query( "SELECT * FROM spip_auteurs_elargis WHERE id_auteur='$id_auteur'");
+			while($data = spip_fetch_array($sql)) {
+				$prenom = extraire_multi($data['prenom']);
+				$nom_famille = extraire_multi($data['nom_famille']);
+				$langue = $data['langue'];
+				}
+		}
+
+
+
+		// Détermine le prix de livraison, nationale ou étranger
+		
+		if ($pays_acheteur != $pays_k AND $livraison_etranger) {$prix_livraison =$prix_livraison_etranger;}
+	
+		
+
+
+					
+	// Notifications de questions/réponses 
+
+	if ($type=='reponse_forum_objet' OR $type=='question_forum_auteur_article') {
+		if ($langue) lang_select($langue);
+		
+		$forum_origin = spip_query( "SELECT * FROM spip_forum WHERE id_forum='$option2'");
+		while($data_orig = spip_fetch_array($forum_origin)) {
+			$id_article=$data_orig['id_article'];
+			$auteur = extraire_multi($data_orig['auteur']);
+			$art= spip_query( "SELECT * FROM spip_articles WHERE id_article='$id_article'");
+			while($date_art= spip_fetch_array($art)) {
+			$titre=$date_art['titre'];
+			}
+			
+			
+			if ($type=='question_forum_auteur_article'){
+				$url  = generer_url_public("article","id_article=$id_article&forum_off=voir#forum$option2",'false');
+				$sujet = "[" .$nom_site_spip . "]"._T('encheres:question_objet', array('titre' => typo($data_orig['titre'])));
+
+				$parauteur = (strlen($auteur) <= 2) ? '' :	  (" " ._T('forum_par_auteur', array('auteur' => $auteur)) .  ($data_orig['email_auteur'] ? ' <' . $data_orig['email_auteur'] . '>' : ''));
+		
+				$message =_T('encheres:pas_repondre')."\n\n"
+				._T('bonjour')."\n\n"
+				._T('encheresmail:email_question_objet',array('texte' => textebrut(propre($data_orig['texte'])),'nom_question' => $auteur,'titre' => typo($data_orig['titre']),'url' => $url))."\n\n"
+				._T('encheresmail:email_signature')."\n\n"._T('message_auto');
+				}
+			else {
+				$id_auteur = sql_getfetsel("id_auteur", "spip_auteurs_articles", "id_article = $id_article");		
+				$nom_asso = sql_getfetsel("nom", "spip_auteurs", "id_auteur = $id_auteur");							
+				$forum_reponse = spip_query( "SELECT * FROM spip_forum WHERE id_forum='$option'");
+				$url  = generer_url_public("article","id_article=$id_article",'false');	
+								
+				while($data_reponse = spip_fetch_array($forum_reponse))	{
+		
+		
+				$sujet = "[" .$nom_site_spip . "]"._T('encheres:reponse_objet', array('titre' => typo($data_orig['titre'])));
+
+				$parauteur = (strlen($auteur) <= 2) ? '' :	  (" " ._T('forum_par_auteur', array('auteur' => $auteur)) .  ($data_orig['email_auteur'] ? ' <' . $data_orig['email_auteur'] . '>' : ''));
+		
+				$message = _T('encheres:pas_repondre')."\n\n"
+				._T('bonjour')."\n\n"
+				._T('encheresmail:email_reponse_objet',array('question' => textebrut(propre($data_orig['texte'])),'reponse' => textebrut(propre($data_reponse['texte'])),'nom_reponse' => extraire_multi($nom_asso),'titre' => typo($data_orig['titre']),'url' => $url))."\n\n"
+				._T('encheresmail:email_signature')."\n\n"._T('message_auto');
+				}
+				}
+			}
+		}
+
+			//Notification d'un mesage posté sur une rubrique
+
+	elseif ($type=='reponse_forum_rubrique' OR $type=='question_forum_auteur_rubrique') {
+		if ($langue) lang_select($langue);
+		
+		$forum = spip_query( "SELECT * FROM spip_forum WHERE id_forum='$option2'");
+		while($data_orig = spip_fetch_array($forum)) {
+			$auteur = extraire_multi($data_orig['auteur']);
+			$id_rubrique=$data_orig['id_rubrique'];
+			$question=$data_orig['texte'];			
+			}
+			$art= spip_query( "SELECT * FROM spip_rubriques WHERE id_rubrique='$id_rubrique'");
+			while($date_art= spip_fetch_array($art)) {
+			$titre=$date_art['titre'];
+			$id_auteur=$date_art['id_auteur'];			
+			$nom_asso= spip_query( "SELECT 'nom' FROM spip_auteurs WHERE id_auteur='$id_auteur'");
+
+			}
+			
+						
+			if ($type=='question_forum_auteur_rubrique'){
+				$url  = generer_url_public("rubrique","id_rubrique=$id_rubrique&forum_off=voir#forum$option2",'false');
+				$sujet = "[" .$nom_site_spip . "]"._T('encheres:question_projet', array('titre' => typo($data_orig['titre'])));
+
+				$message =_T('encheres:pas_repondre')."\n\n"
+				._T('bonjour')."\n\n"
+				._T('encheresmail:email_question_projet',array('texte' => $question,'nom_question' => $auteur,'titre' => typo($data_orig['titre']),'url' => $url))."\n\n"
+				._T('encheresmail:email_signature')."\n\n"._T('message_auto');
+				}
+			else {
+				$url  = generer_url_public("article","id_article=$id_article",'false');
+				$sujet = "[" .$nom_site_spip . "]"._T('encheres:reponse_projet', array('titre' => typo($data_orig['titre'])));						
+				$forum_reponse = spip_query( "SELECT * FROM spip_forum WHERE id_forum='$option'");
+				while($data_reponse = spip_fetch_array($forum_reponse))			
+				$message = _T('encheres:pas_repondre')."\n\n"
+				._T('bonjour')."\n\n"
+				._T('encheresmail:email_reponse_projet',array('question' => textebrut(propre($data_orig['texte'])),'reponse' => textebrut(propre($data_reponse['texte'])),'nom_reponse' => extraire_multi($nom_asso),'titre' => typo($data_orig['titre']),'url' => $url))."\n\n"
+				._T('encheresmail:email_signature')."\n\n"._T('message_auto');
+				}
+
+		};
+			// Partie générale, envoi des mails
+
+	if (envoyer_mail($email,$sujet,$message,$from,$header))
+
+		return spip_log("Email visiteur $email\n$sujet\n$message\n",'encheres_emails_reponses');
+	else
+		return spip_log("Échec envoi email visiteur $email\n$sujet\n$message\n$type\n$header",'encheres_emails_reponses');
+}
+?>
